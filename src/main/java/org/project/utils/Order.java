@@ -1,7 +1,7 @@
 package org.project.utils;
 
+import org.project.enums.OrderStatus;
 import org.project.enums.OrderType;
-import org.project.utils.Instrument;
 
 // Order (extended to handle composite instruments)
 public class Order {
@@ -10,8 +10,18 @@ public class Order {
     private final String traderId;
     private final OrderType type;
     private final Instrument instrument;
-    private final int quantity;
+    private int quantity;
     private final Double price;
+
+    private OrderStatus status;
+
+    public OrderStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(OrderStatus status) {
+        this.status = status;
+    }
 
     public Order(String id, String traderId, OrderType type, Instrument instrument, int quantity, Double price) {
         this.id = id;
@@ -20,6 +30,7 @@ public class Order {
         this.instrument = instrument;
         this.quantity = quantity;
         this.price = price;
+        this.status = OrderStatus.PENDING;
     }
 
     public String getId() {
@@ -40,6 +51,10 @@ public class Order {
 
     public int getQuantity() {
         return quantity;
+    }
+
+    public void setQuantity(int quantity) {
+        this.quantity = quantity;
     }
 
     public Double getPrice() {
