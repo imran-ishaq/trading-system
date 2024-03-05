@@ -1,8 +1,7 @@
-package org.project.impl;
+package org.project;
 
 import org.project.enums.OrderStatus;
 import org.project.enums.OrderType;
-import org.project.exceptions.OrderException;
 import org.project.interfaces.MarketDataProvider;
 import org.project.interfaces.OrderManager;
 import org.project.interfaces.TradingEngine;
@@ -57,72 +56,95 @@ public class SimpleTradingEngine implements TradingEngine {
 
         // Validate component count and instrument match
         if (buyComponents.size() != sellComponents.size() || !buyComponents.stream().allMatch(component -> sellComponents.stream().anyMatch(c -> c.getId().equals(component.getId())))) {
-            LOGGER.log(Level.SEVERE, "Composite order trade failed: Buy and sell orders have different components or don't have matching instruments.");
             return;
         }
 
         // Create and match sub-orders for each underlying instrument
-        List<Order> subOrders = createSubOrders(buyOrder, buyComponents, sellOrder);
-        boolean allFilled = subOrders.stream().allMatch(Order::isFilled);
+        createExecuteSubOrders(buyOrder, buyComponents, sellOrder);
 
-        // Update composite order status based on sub-order fulfillment
-        if (allFilled) {
-            buyOrder.setStatus(OrderStatus.FILLED);
-            sellOrder.setStatus(OrderStatus.FILLED);
-        } else {
-            // Consider handling partial fills for composite orders (optional)
-        }
     }
 
-    private List<Order> createSubOrders(Order parentOrder, List<Instrument> components, Order counterOrder) {
-        List<Order> subOrders = new ArrayList<>();
+    private void createExecuteSubOrders(Order parentOrder, List<Instrument> components, Order counterOrder) {
+        List<Order> sellSubOrders = new ArrayList<>();
+        List<Order> buySubOrders = new ArrayList<>();
+
+
         for (Instrument instrument : components) {
-            // Determine the quantity based on the weight in the composite instrument or the minimum quantity with the counter order
-            double quantity = Math.min(parentOrder.getQuantity(), ((CompositeInstrument) parentOrder.getInstrument()).getComponentWeight(instrument.getId()));
-            quantity = Math.min(quantity, orderManager.getOrders(instrument.getId()).stream().mapToDouble(Order::getQuantity).min().orElse(0));
+            double parentQuantity = calculateSubOrderQuantity(parentOrder, instrument);
+            double counterQuantity = calculateSubOrderQuantity(counterOrder, instrument);
 
-            // Create sub-order with appropriate properties
-            Order subOrder = new Order(parentOrder.getId() + "_" + instrument.getId(), parentOrder.getTraderId(), parentOrder.getType(), parentOrder.getInstrument(), quantity, parentOrder.getPrice());
-            subOrder.setInstrument(instrument);
+            // Create sub-orders for both parent and counter orders
+            Order parentSubOrder = createSubOrder(parentOrder, instrument, parentQuantity);
+            Order counterSubOrder = createSubOrder(counterOrder, instrument, counterQuantity);
 
-            // Attempt to match the sub-order with existing orders or the counter order for the same instrument
-            try {
-                orderManager.addOrder(subOrder);
-            } catch (OrderException e) {
-                LOGGER.log(Level.SEVERE, "Error adding sub-order: " + e.getMessage());
-            }
-            subOrders.add(subOrder);
+            // Execute the trades for both sub-orders
+            executeTrade(parentSubOrder, counterSubOrder);
+
+            // Add the sub-orders to the list of sub-orders
+            buySubOrders.add(parentSubOrder);
+            sellSubOrders.add(counterSubOrder);
         }
-        return subOrders;
+
+        // Update the status of the parent order based on the status of sub-orders
+        updateParentOrderStatus(parentOrder, buySubOrders);
+        updateParentOrderStatus(counterOrder, sellSubOrders);
     }
-    private boolean canExecuteTrade(Order buyOrder, Order sellOrder) {
+
+    private double calculateSubOrderQuantity(Order order, Instrument instrument) {
+        double quantity = 0.0;
+
+        if (order.getInstrument() instanceof CompositeInstrument compositeInstrument) {
+
+            // Get the weight of the component instrument in the composite instrument
+            double componentWeight = compositeInstrument.getComponentWeight(instrument.getId());
+
+            // Calculate the quantity based on the weight and the total quantity of the parent order
+            quantity = componentWeight * order.getQuantity();
+        }
+
+        return quantity;
+    }
+
+
+    private Order createSubOrder(Order order, Instrument instrument, double quantity) {
+        // Create a sub-order with appropriate properties
+        Order subOrder = new Order(order.getId() + "_" + instrument.getId(), order.getTraderId(), order.getType(), order.getInstrument(), quantity, order.getPrice());
+        subOrder.setInstrument(instrument);
+        return subOrder;
+    }
+
+    private void updateParentOrderStatus(Order parentOrder, List<Order> subOrders) {
+        // Check if all sub-orders are filled, partially filled, or pending
+        boolean allFilled = subOrders.stream().allMatch(o -> o.getStatus() == OrderStatus.FILLED);
+        boolean allPartiallyFilled = subOrders.stream().anyMatch(o -> o.getStatus() == OrderStatus.PARTIALLY_FILLED);
+
+        // Update the status of the parent order
+        if (allFilled) {
+            parentOrder.setStatus(OrderStatus.FILLED);
+        } else if (allPartiallyFilled) {
+            parentOrder.setStatus(OrderStatus.PARTIALLY_FILLED);
+        } else {
+            parentOrder.setStatus(OrderStatus.PENDING);
+        }
+    }
+
+    public boolean canExecuteTrade(Order buyOrder, Order sellOrder) {
         // Check if buy and sell orders are for the same instrument
         if (!buyOrder.getInstrument().getId().equals(sellOrder.getInstrument().getId())) {
-            LOGGER.log(Level.SEVERE,String.format("Orders are not for the same instrument. Trade cannot be executed for order %s and %s.", buyOrder.getId(), sellOrder.getId()));
             return false;
         }
 
-//        if(buyOrder.isCompositeOrder()){
-//            LOGGER.log(Level.SEVERE,"Composite orders cannot be traded directly");
-//            return false;
-//        }
         // Check if both orders are active (status is PENDING or PARTIALLY_FILLED) and have positive quantities
         if ((buyOrder.getStatus() != OrderStatus.PENDING && buyOrder.getStatus() != OrderStatus.PARTIALLY_FILLED) ||
                 (sellOrder.getStatus() != OrderStatus.PENDING && sellOrder.getStatus() != OrderStatus.PARTIALLY_FILLED) ||
                 buyOrder.getQuantity() <= 0 || sellOrder.getQuantity() <= 0) {
-            LOGGER.log(Level.SEVERE,String.format("One of the order is already fulfilled %s and %s.", buyOrder.getId(), sellOrder.getId()));
             return false;
         }
 
         // Check if buy price is greater than or equal to sell price
         double buyPrice = buyOrder.getPrice() != null ? buyOrder.getPrice() : marketDataProvider.getMarketPrice(buyOrder.getInstrument().getId());
         double sellPrice = sellOrder.getPrice() != null ? sellOrder.getPrice() : marketDataProvider.getMarketPrice(sellOrder.getInstrument().getId());
-        if (buyPrice < sellPrice) {
-            LOGGER.log(Level.SEVERE,String.format("buy price: %s < and sell price: %s.", buyOrder.getPrice(), sellOrder.getPrice()));
-            return false;
-        }
-
-        return true;
+        return !(buyPrice < sellPrice);
     }
 
 
@@ -130,27 +152,17 @@ public class SimpleTradingEngine implements TradingEngine {
     public void executeTrade(Order buyOrder, Order sellOrder) {
         // Check if the orders are for the same instrument
         if (!buyOrder.getInstrument().getId().equals(sellOrder.getInstrument().getId())) {
-            LOGGER.log(Level.SEVERE,String.format("Orders are not for the same instrument. Trade cannot be executed for order %s and %s.", buyOrder.getId(), sellOrder.getId()));
             return;
         }
 
         // Determine the trade quantity based on the minimum of the buy and sell order quantities
         double tradeQuantity = Math.min(buyOrder.getQuantity(), sellOrder.getQuantity());
-
-        // Calculate the trade price as the best available market price
-        double tradePrice = marketDataProvider.getMarketPrice(buyOrder.getInstrument().getId());
-
-        // Execute the trade
-        LOGGER.log(Level.INFO,"Trade executed between " + buyOrder.getTraderId() + " and " + sellOrder.getTraderId() +
-                " for instrument " + buyOrder.getInstrument().getSymbol() +
-                " at price " + tradePrice + " and quantity " + tradeQuantity);
-
-
         // Update the status of buy and sell orders
         updateOrderStatus(buyOrder, sellOrder, tradeQuantity);
-
         // Adjust the order quantities
         adjustOrderQuantities(buyOrder, sellOrder, tradeQuantity);
+        LOGGER.log(Level.INFO, "Buy order status after matching: " + buyOrder.getStatus());
+        LOGGER.log(Level.INFO, "Sell order status after matching: " + sellOrder.getStatus());
 
     }
 

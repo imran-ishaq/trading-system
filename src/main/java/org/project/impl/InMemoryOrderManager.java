@@ -7,10 +7,7 @@ import org.project.utils.Order;
 import org.project.exceptions.OrderException;
 import org.project.interfaces.OrderManager;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -18,14 +15,14 @@ import java.util.logging.Logger;
 public class InMemoryOrderManager implements OrderManager {
     private static final Logger LOGGER = Logger.getLogger(InMemoryOrderManager.class.getName());
 
-    private final Map<String, Order> orders = new HashMap<>();
+    private final Map<String, Order> orders = new LinkedHashMap<>();
 
     @Override
     public void addOrder(Order order) throws OrderException {
         if (!isValidOrder(order)) {
             throw new OrderException("Invalid order: " + order.getId());
         }
-        String orderId = generateOrderId();
+        String orderId = order.getId();
         orders.put(orderId, order);
     }
 
@@ -101,8 +98,4 @@ public class InMemoryOrderManager implements OrderManager {
     }
 
 
-    private String generateOrderId() {
-        // Implement your logic to generate order IDs here
-        return UUID.randomUUID().toString(); // Placeholder logic, replace with actual ID generation
-    }
 }
