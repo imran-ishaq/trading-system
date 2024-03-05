@@ -9,8 +9,8 @@ public class Order {
     private final String id;
     private final String traderId;
     private final OrderType type;
-    private final Instrument instrument;
-    private int quantity;
+    private Instrument instrument;
+    private Double quantity;
     private final Double price;
 
     private OrderStatus status;
@@ -23,7 +23,7 @@ public class Order {
         this.status = status;
     }
 
-    public Order(String id, String traderId, OrderType type, Instrument instrument, int quantity, Double price) {
+    public Order(String id, String traderId, OrderType type, Instrument instrument, Double quantity, Double price) {
         this.id = id;
         this.traderId = traderId;
         this.type = type;
@@ -49,11 +49,11 @@ public class Order {
         return instrument;
     }
 
-    public int getQuantity() {
+    public Double getQuantity() {
         return quantity;
     }
 
-    public void setQuantity(int quantity) {
+    public void setQuantity(Double quantity) {
         this.quantity = quantity;
     }
 
@@ -63,5 +63,13 @@ public class Order {
 
     public boolean isCompositeOrder() {
         return instrument instanceof CompositeInstrument;
+    }
+
+    public boolean isFilled(){
+        return this.status == OrderStatus.FILLED;
+    }
+
+    public void setInstrument(Instrument instrument) {
+        this.instrument = instrument;
     }
 }

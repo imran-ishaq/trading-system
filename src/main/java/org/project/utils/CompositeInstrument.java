@@ -21,6 +21,15 @@ public class CompositeInstrument extends Instrument {
         }
     }
 
+    public double getComponentWeight(String instrumentId) {
+        // Find the component matching the provided instrument ID
+        return getComponents().stream()
+                .filter(component -> component.getInstrument().getId().equals(instrumentId))
+                .findFirst()
+                .map(InstrumentComponent::getWeight)
+                .orElse(0.0); // Return 0 if the instrument is not found
+    }
+
     public List<InstrumentComponent> getComponents() {
         return components;
     }
